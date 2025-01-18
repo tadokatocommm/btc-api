@@ -1,10 +1,10 @@
 import streamlit as st
-import psycopg2
 import pandas as pd
 import time
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
 
 # Carrega variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -19,16 +19,15 @@ POSTGRES_DB = os.getenv("POSTGRES_DB")
 def ler_dados_postgres():
     """Lê os dados do banco PostgreSQL e retorna como DataFrame."""
     try:
-        conn = psycopg2.connect(
-            host=POSTGRES_HOST,
-            database=POSTGRES_DB,
-            user=POSTGRES_USER,
-            password=POSTGRES_PASSWORD,
-            port=POSTGRES_PORT
-        )
+        # Cria a URL de conexão usando SQLAlchemy
+        DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+        
+        # Cria a conexão com SQLAlchemy
+        engine = create_engine(DATABASE_URL)
+        
+        # Lê os dados do banco de dados PostgreSQL
         query = "SELECT * FROM bitcoin_precos ORDER BY timestamp DESC"
-        df = pd.read_sql(query, conn)
-        conn.close()
+        df = pd.read_sql(query, engine)
         return df
     except Exception as e:
         st.error(f"Erro ao conectar no PostgreSQL: {e}")
