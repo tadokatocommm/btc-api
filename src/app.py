@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from logging import basicConfig, getLogger
 from flask import Flask
+from threading import Thread
 
 # ------------------------------------------------------
 # Configuração Logfire
@@ -51,44 +52,33 @@ def home():
 
 def criar_tabela():
     """Cria a tabela no banco de dados, se não existir."""
-    try:
-        Base.metadata.create_all(engine)
-        logger.info("Tabela criada/verificada com sucesso!")
-    except Exception as ex:
-        logger.error(f"Erro ao criar/verificar tabela: {ex}")
+    Base.metadata.create_all(engine)
+    logger.info("Tabela criada/verificada com sucesso!")
 
 def extrair_dados_bitcoin():
     """Extrai o JSON completo da API da Coinbase."""
     url = 'https://api.coinbase.com/v2/prices/spot'
-    try:
-        resposta = requests.get(url)
-        if resposta.status_code == 200:
-            return resposta.json()
-        else:
-            logger.error(f"Erro na API: {resposta.status_code}")
-            return None
-    except Exception as ex:
-        logger.error(f"Erro ao acessar a API da Coinbase: {ex}")
+    resposta = requests.get(url)
+    if resposta.status_code == 200:
+        return resposta.json()
+    else:
+        logger.error(f"Erro na API: {resposta.status_code}")
         return None
 
 def tratar_dados_bitcoin(dados_json):
     """Transforma os dados brutos da API e adiciona timestamp."""
-    try:
-        valor = float(dados_json['data']['amount'])
-        criptomoeda = dados_json['data']['base']
-        moeda = dados_json['data']['currency']
-        timestamp = datetime.now()
-
-        dados_tratados = {
-            "valor": valor,
-            "criptomoeda": criptomoeda,
-            "moeda": moeda,
-            "timestamp": timestamp
-        }
-        return dados_tratados
-    except Exception as ex:
-        logger.error(f"Erro ao tratar dados: {ex}")
-        return None
+    valor = float(dados_json['data']['amount'])
+    criptomoeda = dados_json['data']['base']
+    moeda = dados_json['data']['currency']
+    timestamp = datetime.now()
+    
+    dados_tratados = {
+        "valor": valor,
+        "criptomoeda": criptomoeda,
+        "moeda": moeda,
+        "timestamp": timestamp
+    }
+    return dados_tratados
 
 def salvar_dados_postgres(dados):
     """Salva os dados no banco PostgreSQL."""
@@ -106,48 +96,38 @@ def salvar_dados_postgres(dados):
 
 def pipeline_bitcoin():
     """Executa a pipeline de ETL do Bitcoin com spans do Logfire."""
-    with logfire.span("Executando pipeline ETL Bitcoin"):
-        with logfire.span("Extrair Dados da API Coinbase"):
-            dados_json = extrair_dados_bitcoin()
-
-        if not dados_json:
-            logger.error("Falha na extração dos dados. Abortando pipeline.")
-            return
-
-        with logfire.span("Tratar Dados do Bitcoin"):
-            dados_tratados = tratar_dados_bitcoin(dados_json)
-
-        if not dados_tratados:
-            logger.error("Falha no tratamento dos dados. Abortando pipeline.")
-            return
-
-        with logfire.span("Salvar Dados no Postgres"):
-            salvar_dados_postgres(dados_tratados)
-
-        logger.info("Pipeline finalizada com sucesso!")
-
-if __name__ == "__main__":
-    # Cria a tabela no banco de dados antes de iniciar a pipeline
-    criar_tabela()
-    logger.info("Iniciando pipeline ETL com atualização a cada 15 segundos... (CTRL+C para interromper)")
-
-    # Inicia o servidor Flask em uma thread separada
-    from threading import Thread
-
-    def iniciar_flask():
-        app.run(host="0.0.0.0", port=5000)
-
-    flask_thread = Thread(target=iniciar_flask)
-    flask_thread.start()
-
-    # Executa a pipeline ETL em loop contínuo
     while True:
         try:
-            pipeline_bitcoin()
+            with logfire.span("Executando pipeline ETL Bitcoin"):
+                
+                with logfire.span("Extrair Dados da API Coinbase"):
+                    dados_json = extrair_dados_bitcoin()
+                
+                if not dados_json:
+                    logger.error("Falha na extração dos dados. Abortando pipeline.")
+                    time.sleep(15)
+                    continue
+                
+                with logfire.span("Tratar Dados do Bitcoin"):
+                    dados_tratados = tratar_dados_bitcoin(dados_json)
+                
+                with logfire.span("Salvar Dados no Postgres"):
+                    salvar_dados_postgres(dados_tratados)
+
+                logger.info("Pipeline finalizada com sucesso!")
             time.sleep(15)
-        except KeyboardInterrupt:
-            logger.info("Processo interrompido pelo usuário. Finalizando...")
-            break
         except Exception as e:
             logger.error(f"Erro inesperado durante a pipeline: {e}")
             time.sleep(15)
+
+if __name__ == "__main__":
+    criar_tabela()
+    logger.info("Iniciando aplicação...")
+
+    # Cria uma thread para rodar a pipeline em paralelo
+    thread_etl = Thread(target=pipeline_bitcoin)
+    thread_etl.daemon = True
+    thread_etl.start()
+
+    # Inicia o servidor Flask
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
