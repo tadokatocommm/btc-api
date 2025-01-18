@@ -119,9 +119,6 @@ if __name__ == "__main__":
     criar_tabela()
     logger.info("Iniciando pipeline ETL com atualização a cada 15 segundos... (CTRL+C para interromper)")
 
-    # Start Flask to listen on the specified PORT
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))  # Porta padrão 10000 para Render
-
     while True:
         try:
             pipeline_bitcoin()
