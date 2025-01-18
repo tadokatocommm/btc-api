@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from logging import basicConfig, getLogger
+from flask import Flask
 
 # ------------------------------------------------------
 # Configuração Logfire
@@ -40,6 +41,13 @@ DATABASE_URL = (
 # Cria o engine e a sessão
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
+
+# Configuração do Flask
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Aplicação rodando na porta correta!"
 
 def criar_tabela():
     """Cria a tabela no banco de dados, se não existir."""
@@ -110,6 +118,9 @@ def pipeline_bitcoin():
 if __name__ == "__main__":
     criar_tabela()
     logger.info("Iniciando pipeline ETL com atualização a cada 15 segundos... (CTRL+C para interromper)")
+
+    # Start Flask to listen on the specified PORT
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))  # Porta padrão 10000 para Render
 
     while True:
         try:
